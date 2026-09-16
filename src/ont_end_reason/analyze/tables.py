@@ -61,13 +61,14 @@ def generate_tables(source: str | Path, *, name: str, **kwargs: Any) -> TableRes
 
     if name == "summary":
         dist = distribution(source)
+        payload = dist.to_dict()
         rows = [
             {
                 "total_reads": dist.total_reads,
                 "quality_status": dist.quality_status,
-                "signal_positive_pct": round(dist.signal_positive_pct, 2),
-                "unblock_mux_pct": round(dist.unblock_mux_pct, 2),
-                "data_service_pct": round(dist.data_service_pct, 2),
+                "signal_positive_pct": payload["signal_positive_pct"],
+                "unblock_mux_pct": payload["unblock_mux_pct"],
+                "data_service_pct": payload["data_service_pct"],
             }
         ]
     elif name == "per_class":

@@ -37,7 +37,7 @@ def _normalise_end_reason(reason: Any) -> str:
     """
     import re
 
-    if reason is None:
+    if reason is None or (isinstance(reason, float) and reason != reason):
         return "unknown"
     # Enum members have a .name attribute; use it directly when present
     name_attr = getattr(reason, "name", None)
