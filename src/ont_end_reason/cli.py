@@ -35,6 +35,10 @@ def _configure_logging(*, debug: bool, quiet: bool) -> None:
     )
 
 
+def _format_percentage(value: float | None) -> str:
+    return "unavailable" if value is None else f"{value:.2f}"
+
+
 def _die(message: str) -> NoReturn:
     click.echo(f"[error] {message}", err=True)
     sys.exit(1)
@@ -138,9 +142,7 @@ def tag(summary: str, bam: str, out: str, tag_name: str) -> None:
     show_default=True,
     help="Target reads per shard when threads >= 2 (parallel mode).",
 )
-def filter(
-    bam: str, out: str, keep: str, tag_name: str, threads: int, shard_size: int
-) -> None:
+def filter(bam: str, out: str, keep: str, tag_name: str, threads: int, shard_size: int) -> None:
     """Filter a tagged BAM by end_reason."""
     from .filter.filter import filter_bam
 
@@ -206,7 +208,7 @@ def analyze_distribution(
     plot_out: str | None,
     baseline_store: bool,
 ) -> None:
-    """End-reason distribution + OK/CHECK/FAIL quality gate."""
+    """End-reason distribution + OK/CHECK/FAIL/UNKNOWN quality gate."""
     from .analyze.distribution import (
         distribution as do_distribution,
     )
@@ -221,14 +223,14 @@ def analyze_distribution(
 
     click.echo(f"Total reads:  {result.total_reads:,}")
     click.echo(f"Status:       {result.quality_status}")
-    click.echo(f"Signal+ %:    {result.signal_positive_pct:.2f}")
-    click.echo(f"UMC %:        {result.unblock_mux_pct:.2f}")
-    click.echo(f"DUMC %:       {result.data_service_pct:.2f}")
+    click.echo(f"Signal+ %:    {_format_percentage(result.signal_positive_pct)}")
+    click.echo(f"UMC %:        {_format_percentage(result.unblock_mux_pct)}")
+    click.echo(f"DUMC %:       {_format_percentage(result.data_service_pct)}")
     click.echo(f"Interpretation: {result.interpretation}")
 
     if json_out:
         Path(json_out).parent.mkdir(parents=True, exist_ok=True)
-        Path(json_out).write_text(json.dumps(result.to_dict(), indent=2))
+        Path(json_out).write_text(json.dumps(result.to_dict(), indent=2), encoding="utf-8")
         click.echo(f"JSON: {json_out}")
 
     if plot_out:
@@ -764,9 +766,9 @@ def stats(summary: str, out: str | None, json_out: str | None) -> None:
         f"sequencing_summary stats — {summary}\n"
         f"  total_reads:        {result.total_reads:,}\n"
         f"  quality_status:     {result.quality_status}\n"
-        f"  signal_positive_%:  {result.signal_positive_pct:.2f}\n"
-        f"  unblock_mux_%:      {result.unblock_mux_pct:.2f}\n"
-        f"  data_service_%:     {result.data_service_pct:.2f}\n"
+        f"  signal_positive_%:  {_format_percentage(result.signal_positive_pct)}\n"
+        f"  unblock_mux_%:      {_format_percentage(result.unblock_mux_pct)}\n"
+        f"  data_service_%:     {_format_percentage(result.data_service_pct)}\n"
     )
     if out:
         Path(out).write_text(text)
@@ -775,7 +777,7 @@ def stats(summary: str, out: str | None, json_out: str | None) -> None:
         click.echo(text)
 
     if json_out:
-        Path(json_out).write_text(json.dumps(result.to_dict(), indent=2))
+        Path(json_out).write_text(json.dumps(result.to_dict(), indent=2), encoding="utf-8")
         click.echo(f"Wrote {json_out}")
 
 

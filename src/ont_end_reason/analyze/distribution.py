@@ -51,20 +51,38 @@ class DistributionResult:
     total_reads: int
     counts: dict[str, int] = field(default_factory=dict)
     percentages: dict[str, float] = field(default_factory=dict)
-    quality_status: str = "OK"  # OK | CHECK | FAIL
-    signal_positive_pct: float = 0.0
-    unblock_mux_pct: float = 0.0
-    data_service_pct: float = 0.0
+    quality_status: str = "UNKNOWN"  # OK | CHECK | FAIL | UNKNOWN
+    signal_positive_pct: float | None = None
+    unblock_mux_pct: float | None = None
+    data_service_pct: float | None = None
     interpretation: str = ""
     source_format: str | None = None
+
+    @property
+    def recognized_reads(self) -> int:
+        return sum(
+            n for reason, n in self.counts.items() if reason in CODES and reason != "unknown"
+        )
+
+    @property
+    def unrecognized_reads(self) -> int:
+        return self.total_reads - self.recognized_reads
 
     def to_dict(self) -> dict[str, object]:
         return {
             "total_reads": self.total_reads,
             "quality_status": self.quality_status,
-            "signal_positive_pct": round(self.signal_positive_pct, 2),
-            "unblock_mux_pct": round(self.unblock_mux_pct, 2),
-            "data_service_pct": round(self.data_service_pct, 2),
+            "recognized_reads": self.recognized_reads,
+            "unrecognized_reads": self.unrecognized_reads,
+            "signal_positive_pct": round(self.signal_positive_pct, 2)
+            if self.signal_positive_pct is not None
+            else None,
+            "unblock_mux_pct": round(self.unblock_mux_pct, 2)
+            if self.unblock_mux_pct is not None
+            else None,
+            "data_service_pct": round(self.data_service_pct, 2)
+            if self.data_service_pct is not None
+            else None,
             "counts": self.counts,
             "percentages": {k: round(v, 4) for k, v in self.percentages.items()},
             "interpretation": self.interpretation,
@@ -77,7 +95,7 @@ def _aggregate(records: Iterable[ReadRecord]) -> tuple[int, dict[str, int]]:
     total = 0
     for r in records:
         total += 1
-        key = r.end_reason or "unknown"
+        key = (r.end_reason or "").strip() or "unknown"
         counts[key] = counts.get(key, 0) + 1
     return total, counts
 
@@ -164,11 +182,23 @@ def distribution(
 
     percentages = {k: v / total for k, v in norm_counts.items()}
 
-    sp_pct = percentages.get("signal_positive", 0.0) * 100
-    umc_pct = percentages.get("unblock_mux_change", 0.0) * 100
-    dumc_pct = percentages.get("data_service_unblock_mux_change", 0.0) * 100
+    sp_pct: float | None = percentages.get("signal_positive", 0.0) * 100
+    umc_pct: float | None = percentages.get("unblock_mux_change", 0.0) * 100
+    dumc_pct: float | None = percentages.get("data_service_unblock_mux_change", 0.0) * 100
 
-    if sp_pct < 50:
+    unrecognized = sum(
+        n for reason, n in norm_counts.items() if reason not in CODES or reason == "unknown"
+    )
+    interpretation = _interpretation(percentages)
+    if unrecognized:
+        status = "UNKNOWN"
+        sp_pct = umc_pct = dumc_pct = None
+        interpretation = (
+            f"End-reason quality is unavailable: {total - unrecognized:,}/{total:,} reads "
+            "have recognized end-reason metadata. Counts and fractions describe recorded labels; "
+            "they do not establish run quality."
+        )
+    elif sp_pct < 50:
         status = "FAIL"
     elif sp_pct < 75:
         status = "CHECK"
@@ -183,7 +213,7 @@ def distribution(
         signal_positive_pct=sp_pct,
         unblock_mux_pct=umc_pct,
         data_service_pct=dumc_pct,
-        interpretation=_interpretation(percentages),
+        interpretation=interpretation,
         source_format=src_format,
     )
 
@@ -298,6 +328,20 @@ def maybe_store_baseline(
     """
     if not write:
         return None
+    if (
+        result.quality_status == "UNKNOWN"
+        or result.unrecognized_reads
+        or any(
+            value is None
+            for value in (
+                result.signal_positive_pct,
+                result.unblock_mux_pct,
+                result.data_service_pct,
+            )
+        )
+    ):
+        logger.warning("End-reason quality unavailable; skipping baseline store")
+        return None
 
     entries = _load_registry_entries(registry_path)
     if not entries:
@@ -321,8 +365,7 @@ def maybe_store_baseline(
         )
     except ImportError as exc:
         logger.warning(
-            "qc_baseline not available (ont-ecosystem missing at %s): %s; "
-            "skipping baseline store",
+            "qc_baseline not available (ont-ecosystem missing at %s): %s; skipping baseline store",
             ONT_ECOSYSTEM_PATH,
             exc,
         )
@@ -347,12 +390,8 @@ def maybe_store_baseline(
             "signal_positive_pct": float(result.signal_positive_pct),
             "unblock_mux_pct": float(result.unblock_mux_pct),
             "data_service_pct": float(result.data_service_pct),
-            "mux_change_pct": float(
-                result.percentages.get("mux_change", 0.0) * 100.0
-            ),
-            "signal_negative_pct": float(
-                result.percentages.get("signal_negative", 0.0) * 100.0
-            ),
+            "mux_change_pct": float(result.percentages.get("mux_change", 0.0) * 100.0),
+            "signal_negative_pct": float(result.percentages.get("signal_negative", 0.0) * 100.0),
         }
 
         ts = _parse_timestamp(entry.get("discovered"))

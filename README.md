@@ -377,3 +377,6 @@ Built by the [Athey Lab](https://github.com/Single-Molecule-Sequencing) at the U
 [Design spec](docs/superpowers/specs/2026-05-12-ont-end-reason-design.md)
 
 </div>
+
+See [missing end-reason metadata](docs/missing-end-reason.md) for the UNKNOWN
+status, nullable quality metrics, and baseline-store behavior.
