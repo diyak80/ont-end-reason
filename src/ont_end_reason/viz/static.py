@@ -121,13 +121,24 @@ def plot_length_distribution(
     title: str | None = None,
     log_x: bool = True,
 ) -> Figure:
-    """Overlay histogram of read lengths per end_reason category.
+    """Exact 1 bp read-length curve per end_reason category, no cap, no rebin.
+
+    Every read in ``result.raw_lengths_by_class`` (the full, uncapped
+    population) is plotted: :func:`exact_length_counts` builds the exact
+    per-base-pair count table and asserts that the plotted counts conserve
+    the read total and that no two distinct lengths were merged, the same
+    two invariants ont-ecosystem's ``lib.readdist.core`` asserts (see
+    ``lib/readdist/CONTRACT.md`` section 3). Previously this histogrammed a
+    random 50,000-read subsample per class into 60 log-spaced bins, so the
+    figure's largest class disagreed with its own title and JSON output.
 
     Default x-axis is log-scale because ONT read-length distributions
-    typically span 2-3 orders of magnitude. Pass `log_x=False` for linear.
+    typically span 2-3 orders of magnitude; this is an axis-scale choice; it
+    does not merge or resample any point. Pass `log_x=False` for linear.
     """
     import matplotlib.pyplot as plt
-    import numpy as np
+
+    from ..exact_counts import exact_length_counts
 
     fig, ax = plt.subplots(figsize=(8, 4.5))
     ordered = [k for k in _CATEGORY_ORDER if k in result.raw_lengths_by_class]
@@ -135,24 +146,25 @@ def plot_length_distribution(
         if k not in ordered:
             ordered.append(k)
 
-    bins = np.logspace(2, 6, 60) if log_x else 60
     for key in ordered:
         lengths = result.raw_lengths_by_class[key]
         if not lengths:
             continue
-        ax.hist(
-            lengths,
-            bins=bins,
-            alpha=0.55,
+        grid, counts = exact_length_counts(lengths)
+        color = _PALETTE.get(key, "#cccccc")
+        ax.plot(
+            grid,
+            counts,
+            lw=0.8,
+            color=color,
             label=f"{CODES.get(key, key)} (n={len(lengths):,})",
-            color=_PALETTE.get(key, "#cccccc"),
-            edgecolor="none",
         )
+        ax.fill_between(grid, counts, alpha=0.35, color=color, linewidth=0)
 
     if log_x:
         ax.set_xscale("log")
     ax.set_xlabel("Read length (bp)")
-    ax.set_ylabel("Read count")
+    ax.set_ylabel("Read count (exact, 1 bp bins)")
     ax.set_title(title or f"Read length distribution by end_reason (n = {result.total_reads:,})")
     ax.legend(frameon=False, fontsize=8)
     ax.spines["top"].set_visible(False)

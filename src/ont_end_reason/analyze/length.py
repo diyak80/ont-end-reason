@@ -50,7 +50,10 @@ class LengthResult:
     total_reads: int = 0
     per_class: dict[str, LengthStats] = field(default_factory=dict)
     # raw_lengths_by_class is kept for visualisation (histograms, violins).
-    # Capped at 50_000 reads per class to bound memory on huge inputs.
+    # Full per-class population, uncapped and unsampled: plot_length_distribution
+    # (viz/static.py) renders it at exact 1 bp resolution via exact_counts.py, and
+    # capping or subsampling here would make the plotted population diverge from
+    # the per_class stats and the JSON output, which are always exact.
     raw_lengths_by_class: dict[str, list[int]] = field(default_factory=dict)
     source: str | None = None
 
@@ -146,8 +149,6 @@ def _from_summary_streaming(path: Path) -> tuple[dict[str, np.ndarray], int]:
 
 def length(
     source: str | Path | Iterable[ReadRecord],
-    *,
-    max_raw_per_class: int = 50_000,
 ) -> LengthResult:
     """Per-end_reason length-distribution summary.
 
@@ -158,6 +159,13 @@ def length(
     POD5/Fast5 inputs go through ReadRecord iteration because end_reason
     is read at extraction time. For PromethION-scale data, prefer the
     sequencing_summary.txt path.
+
+    ``raw_lengths_by_class`` on the result is the full per-class population,
+    never capped or subsampled: it used to be randomly subsampled to 50,000
+    reads per class for the ``--plot`` path only, while this function's own
+    per-class stats and JSON output were always computed from the full
+    population, so the figure and the numbers describe different populations
+    (see lib/readdist/CONTRACT.md in ont-ecosystem, which this fix follows).
     """
     if isinstance(source, (str, Path)):
         path = Path(source)
@@ -187,14 +195,9 @@ def length(
         if len(lengths) == 0:
             continue
         per_class[er] = _summarize(lengths)
-        # Cap raw arrays so report HTML stays small
-        if len(lengths) > max_raw_per_class:
-            idx = np.random.default_rng(0).choice(
-                len(lengths), size=max_raw_per_class, replace=False
-            )
-            raw[er] = lengths[idx].tolist()
-        else:
-            raw[er] = lengths.tolist()
+        # Full population, no cap and no subsampling: the plot must show
+        # exactly what per_class/JSON report, not a random draw from it.
+        raw[er] = lengths.tolist()
 
     return LengthResult(
         total_reads=n_total,
